@@ -19,6 +19,7 @@ class FPN(nn.Module):
                  extra_convs_on_inputs=True,
                  relu_before_extra_convs=False,
                  no_norm_on_lateral=False,
+                 pos_embed_weight=0,
                  conv_cfg=None,
                  norm_cfg=None,
                  attention=False,
@@ -38,7 +39,8 @@ class FPN(nn.Module):
         self.relu_before_extra_convs = relu_before_extra_convs
         self.no_norm_on_lateral = no_norm_on_lateral
         self.upsample_cfg = upsample_cfg.copy()
-
+        self.pos_embed_weight=pos_embed_weight
+        
         if end_level == -1:
             self.backbone_end_level = self.num_ins
             assert num_outs >= self.num_ins - start_level
@@ -164,4 +166,20 @@ class FPN(nn.Module):
                         outs.append(self.fpn_convs[i](F.relu(outs[-1])))
                     else:
                         outs.append(self.fpn_convs[i](outs[-1]))
-        return tuple(outs)
+        
+        
+        import numpy as np
+        print('\n',outs[0].view(-1)[0])
+        output = []
+        for out_i in outs:
+            bs, c, h, w = out_i.shape
+            pos_embed = torch.tensor(np.arange(h*w),dtype=torch.float16, device=out_i.device).view(-1,1).repeat(1,c)
+            pos_embed /= (torch.tensor(10000**(np.arange(c)//2*2./c),dtype=torch.float16,device=out_i.device)).view(1,-1).repeat(h*w,1)
+            pos_embed = pos_embed.permute(1,0).view(c,h,w).unsqueeze(0).repeat(bs,1,1,1)
+            pos_embed = pos_embed / pos_embed.max() * out_i.max()
+            out_i = (1-self.pos_embed_weight)*out_i + self.pos_embed_weight*pos_embed
+            output.append(out_i)
+        print('afterEmbed:\n',output[0].view(-1)[0])    
+        
+        
+        return tuple(output)
